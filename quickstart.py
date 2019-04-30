@@ -2,18 +2,30 @@ from __future__ import print_function
 import pickle
 import os.path
 import time
-from time import localtime, strftime
+from time import localtime, strftime, sleep
 from email.mime.text import MIMEText
 from email.mime.base import MIMEBase
 from email.mime.image import MIMEImage
 from email.mime.multipart import MIMEMultipart
+from picamera import PiCamera
 import os
 import mimetypes
 import base64
+import sys
 from apiclient import errors
 from googleapiclient.discovery import build
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
+import keyboard
+import Rpi.GPIO as GPIO
+from hx711 import HX711
+
+def cleanAndExit():
+	#clean and exit function for gpio stuff
+    print("Cleaning...")
+    GPIO.cleanup()
+    print("BYE!")
+    sys.exit()
 
 # If modifying these scopes, delete the file token.pickle.
 #SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']
@@ -112,6 +124,7 @@ def main():
     # The file token.pickle stores the user's access and refresh tokens, and is
     # created automatically when the authorization flow completes for the first
     # time.
+
     if os.path.exists('token.pickle'):
         with open('token.pickle', 'rb') as token:
             creds = pickle.load(token)
@@ -129,7 +142,48 @@ def main():
 
     service = build('gmail', 'v1', credentials=creds)
 
+    #initializes the Camera
+    camera = PiCamera()
+
+    #initialize the hx711
+    hx = HX711(5,6)
+    hx.set_reading_format("MSB", "MSB")
+
+    hx.set_reference_unit(440) #found through calibration
+    hx.reset()
+    hx.tare()
+    currentWeight = 0
+    pictureNum = 0
+
+    while True:
+    	dayEndtime = time.time() + 60*60*24 # 1 day from now
+    	try: 
+    		val = hx.get_weight(5)
+    		if (val - currentWeight >= 5): #something larger than 3 grams added
+    			timeout = time() + 60 # 1 minute from now
+
+    			while time.time() < timeout:
+    				if val-currentWeight >=3 :
+    					camera.start_preview()
+    					currentWeight = val
+    					if not os.path.exists(folderpath):
+                			os.mkdir(folderpath)
+            			camera.capture(folderpath+'image%s.jpg' % pictureNum)
+            			pictureNum += 1
+           				camera.stop_preview()
+           			print(val)
+           			hx.power_down()
+           			hx.power_up()
+           			time.sleep(1)
+      			callGmailAPI(service)
+      		if time.time() >= dayEndtime:
+      			#cleanup the pictures at the end of the day
+        except(KeyboardInterrupt, SystemExit):
+        	cleanAndExit()
+
     # Call the Gmail API
+def callGmailAPI(service):
+
     results = service.users().labels().list(userId='me').execute()
     labels = results.get('labels', [])
     sender = "me"
@@ -142,7 +196,7 @@ def main():
     message_text += "\nThis is an automated email sent by SMART MAILBOX"
     
     folderpath = strftime("/home/pi/Documents/498lab4/Photos/%m_%d_%Y/",timestamp)
-    
+   
     #file = folderpath+'image1.jpg'
     user_id = "smartmailbox498@gmail.com"
     #msg = create_message(sender, to, subject, message_text)
