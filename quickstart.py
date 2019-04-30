@@ -17,11 +17,12 @@ from googleapiclient.discovery import build
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 import keyboard
-import Rpi.GPIO as GPIO
+import RPi.GPIO as GPIO
 from hx711 import HX711
+import shutil
 
 def cleanAndExit():
-	#clean and exit function for gpio stuff
+    #clean and exit function for gpio stuff
     print("Cleaning...")
     GPIO.cleanup()
     print("BYE!")
@@ -115,12 +116,26 @@ def create_message_with_multi_attachment(sender, to, subject, message_text, fold
         message.attach(msg)
     
     return {'raw': base64.urlsafe_b64encode(message.as_string())}
-
+def delete_old_folders():
+    """
+    Deletes old images from folder after a certain amount of time
+    """
+    timestamp = localtime()
+    curr_month = int(strftime("%m", timestamp))
+    if curr_month == 1:
+        prev_month = 12
+    else:
+        prev_month = curr_month-1
+    date_to_delete = strftime(str(prev_month) + "_" + "%d_%Y", timestamp)
+    folderpath = "/home/pi/Documents/498lab4/Photos/" + date_to_delete
+    shutil.rmtree(folderpath, ignore_errors = True)
+    
 def main():
     """Shows basic usage of the Gmail API.
     Lists the user's Gmail labels.
     """
     creds = None
+    #GPIO.cleanup()
     # The file token.pickle stores the user's access and refresh tokens, and is
     # created automatically when the authorization flow completes for the first
     # time.
@@ -154,36 +169,69 @@ def main():
     hx.tare()
     currentWeight = 0
     pictureNum = 0
-
+    cachetime = False
+    falsePositive = False
+    batchNum = 0
+    print("Starting polling")
     while True:
-    	dayEndtime = time.time() + 60*60*24 # 1 day from now
-    	try: 
-    		val = hx.get_weight(5)
-    		if (val - currentWeight >= 5): #something larger than 3 grams added
-    			timeout = time() + 60 # 1 minute from now
-
-    			while time.time() < timeout:
-    				if val-currentWeight >=3 :
-    					camera.start_preview()
-    					currentWeight = val
-    					if not os.path.exists(folderpath):
-                			os.mkdir(folderpath)
-            			camera.capture(folderpath+'image%s.jpg' % pictureNum)
-            			pictureNum += 1
-           				camera.stop_preview()
-           			print(val)
-           			hx.power_down()
-           			hx.power_up()
-           			time.sleep(1)
-      			callGmailAPI(service)
-      		if time.time() >= dayEndtime:
-      			#cleanup the pictures at the end of the day
+        print("Start of loop")
+        if cachetime == False :
+            dayEndtime = time.time() + 60*60*24 # 1 day from now
+            cachetime = True
+            print("Set Clear time to ", dayEndtime)
+        try: 
+            val = hx.get_weight(5)
+            if val < 0 :
+                hx.reset()
+                hx.tare()
+            if (val - currentWeight >= 5): #something larger than 3 grams added
+                timeout = time.time() + 60 # 1 minute from now
+                print("New item detected, 1 minute for pictures")
+                while time.time() < timeout:
+                    val = hx.get_weight(5)
+                    if val - currentWeight < -3 : #false positive
+                        print("False positive!")
+                        falsePositive = True
+                        break
+                    if val-currentWeight >=4 :
+                        camera.start_preview()
+                        currentWeight = val
+                        folderpath = strftime("/home/pi/Documents/498lab4/Photos/%m_%d_%Y/",localtime())
+                        if not os.path.exists(folderpath):
+                            os.mkdir(folderpath)
+                        camera.capture(folderpath +'image%s.jpg' % pictureNum)
+                        pictureNum += 1
+                        camera.stop_preview()
+                    print(val)
+                    hx.power_down()
+                    hx.power_up()
+                    time.sleep(1)
+                if not falsePositive :
+                    callGmailAPI(service, pictureNum)
+                falsePositive = False
+                print("got here 1")
+                print("current weight ", currentWeight)
+                print("val", val)
+                
+            if (val-currentWeight < -3 ) : #something taken out
+                print("sleeping")
+                time.sleep(30) #sleep for 30 seconds
+                hx.reset()
+                hx.tare()
+                val = hx.get_weight(5)
+                currentWeight = hx.get_weight(5)
+                print("done sleeping")
+            if time.time() >= dayEndtime:
+                cachetime = False
+                print("Exiting loop!")
+                break
+                #cleanup the pictures at the end of the day
         except(KeyboardInterrupt, SystemExit):
-        	cleanAndExit()
+            cleanAndExit()
 
     # Call the Gmail API
-def callGmailAPI(service):
-
+def callGmailAPI(service, numpictures):
+    print("sending email!")
     results = service.users().labels().list(userId='me').execute()
     labels = results.get('labels', [])
     sender = "me"
@@ -201,6 +249,7 @@ def callGmailAPI(service):
     user_id = "smartmailbox498@gmail.com"
     #msg = create_message(sender, to, subject, message_text)
     #msg = create_message_with_attachment(sender, to, subject, message_text, file)
+
     msg = create_message_with_multi_attachment(sender, to, subject, message_text, folderpath)
     draft = create_draft(service, user_id, msg)
     
