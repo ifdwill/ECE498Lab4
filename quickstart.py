@@ -121,14 +121,21 @@ def delete_old_folders():
     """
     Deletes old images from folder after a certain amount of time
     """
+    print("Starting deletion")
     timestamp = localtime()
     curr_month = int(strftime("%m", timestamp))
     if curr_month == 1:
         prev_month = 12
     else:
         prev_month = curr_month-1
-    date_to_delete = strftime(str(prev_month) + "_" + "%d_%Y", timestamp)
+    if prev_month < 10:
+        strprev_month = "0" + str(prev_month)
+    else :
+        strprev_month = str(prev_month)
+        
+    date_to_delete = strftime(strprev_month + "_" + "%d_%Y", timestamp)
     folderpath = "/home/pi/Documents/498lab4/Photos/" + date_to_delete
+    print(folderpath)
     shutil.rmtree(folderpath, ignore_errors = True)
     
 def main():
@@ -227,9 +234,10 @@ def main():
                 val = hx.get_weight(5)
                 currentWeight = hx.get_weight(5)
                 print("done sleeping")
+            
+            delete_old_folders()
             if time.time() >= dayEndtime:
                 cachetime = False
-                delete_old_folders()
                 pictureNum = 0 # reset picture number
                 print("Exiting loop!")
                 break
