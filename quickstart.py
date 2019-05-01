@@ -84,7 +84,7 @@ def create_message_with_attachment(sender, to, subject, message_text, file):
     
     return {'raw': base64.urlsafe_b64encode(message.as_string())}
 
-def create_message_with_multi_attachment(sender, to, subject, message_text, folderpath):
+def create_message_with_multi_attachment(sender, to, subject, message_text, folderpath, startnum, endnum):
     """
     Creates a message with multiple attachments from a folder path
     """
@@ -95,15 +95,16 @@ def create_message_with_multi_attachment(sender, to, subject, message_text, fold
     file = sorted(os.listdir(folderpath))
     msg = MIMEText(message_text)
     message.attach(msg)
-    for i in range(len(file)):
-        content_type, encoding = mimetypes.guess_type(file[i])
+    #for i in range(len(file)):
+    for i in range(endnum-startnum):
+        content_type, encoding = mimetypes.guess_type(file[startnum + i])
     
         if content_type is None or encoding is not None:
             content_type = 'application/octet-stream'
         main_type, sub_type = content_type.split('/', 1)
     
         if main_type == 'image':
-            fp = open(folderpath+file[i], 'rb')
+            fp = open(folderpath+file[startnum+i], 'rb')
             msg = MIMEImage(fp.read(), _subtype = sub_type)
             fp.close()
         else:
@@ -111,7 +112,7 @@ def create_message_with_multi_attachment(sender, to, subject, message_text, fold
             msg = MIMEBase(main_type, sub_type)
             msg.set_payload(fp.read())
             fp.close()
-        filename = os.path.basename(folderpath+file[i])
+        filename = os.path.basename(folderpath+file[startnum+i])
         msg.add_header('Content-Disposition', 'attachment', filename=filename)
         message.attach(msg)
     
@@ -172,6 +173,7 @@ def main():
     cachetime = False
     falsePositive = False
     batchNum = 0
+    
     print("Starting polling")
     while True:
         print("Start of loop")
@@ -189,11 +191,11 @@ def main():
                 print("New item detected, 1 minute for pictures")
                 while time.time() < timeout:
                     val = hx.get_weight(5)
-                    if val - currentWeight < -3 : #false positive
+                    if val - currentWeight < -3 or val <= 0 : #false positive
                         print("False positive!")
                         falsePositive = True
                         break
-                    if val-currentWeight >=4 :
+                    if val-currentWeight >=4:
                         camera.start_preview()
                         currentWeight = val
                         folderpath = strftime("/home/pi/Documents/498lab4/Photos/%m_%d_%Y/",localtime())
@@ -215,7 +217,11 @@ def main():
                 
             if (val-currentWeight < -3 ) : #something taken out
                 print("sleeping")
-                time.sleep(30) #sleep for 30 seconds
+                for i in range(10):
+                    time.sleep(1)
+                    print("sleep", i)
+                    
+                #time.sleep(30) #sleep for 30 seconds
                 hx.reset()
                 hx.tare()
                 val = hx.get_weight(5)
@@ -223,6 +229,8 @@ def main():
                 print("done sleeping")
             if time.time() >= dayEndtime:
                 cachetime = False
+                delete_old_folders()
+                pictureNum = 0 # reset picture number
                 print("Exiting loop!")
                 break
                 #cleanup the pictures at the end of the day
@@ -249,12 +257,19 @@ def callGmailAPI(service, numpictures):
     user_id = "smartmailbox498@gmail.com"
     #msg = create_message(sender, to, subject, message_text)
     #msg = create_message_with_attachment(sender, to, subject, message_text, file)
-
-    msg = create_message_with_multi_attachment(sender, to, subject, message_text, folderpath)
-    draft = create_draft(service, user_id, msg)
+    if numpictures > 4 :
+        for i in range(numpictures/4): 
+            msg = create_message_with_multi_attachment(sender, to, subject, message_text, folderpath, (i*4), (i*4) + 4)
+            draft = create_draft(service, user_id, msg)
+            sent = service.users().drafts().send(userId = user_id, body = {'id':str(draft["id"])}).execute()
+            print(sent)
+    #for i in range(numpictures / 4) : # four pictures per email
+    else:    
+        msg = create_message_with_multi_attachment(sender, to, subject, message_text, folderpath, 0, numpictures)
+        draft = create_draft(service, user_id, msg)
     
-    sent = service.users().drafts().send(userId = user_id, body = {'id':str(draft["id"])}).execute()
-    print(sent)
+        sent = service.users().drafts().send(userId = user_id, body = {'id':str(draft["id"])}).execute()
+        print(sent)
     """
     if not labels:
         print('No labels found.')
