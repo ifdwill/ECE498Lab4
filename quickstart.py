@@ -121,7 +121,7 @@ def delete_old_folders():
     """
     Deletes old images from folder after a certain amount of time
     """
-    print("Starting deletion")
+    #print("Starting deletion")
     timestamp = localtime()
     curr_month = int(strftime("%m", timestamp))
     if curr_month == 1:
@@ -135,7 +135,7 @@ def delete_old_folders():
         
     date_to_delete = strftime(strprev_month + "_" + "%d_%Y", timestamp)
     folderpath = "/home/pi/Documents/498lab4/Photos/" + date_to_delete
-    print(folderpath)
+    #print(folderpath)
     shutil.rmtree(folderpath, ignore_errors = True)
     
 def main():
@@ -193,9 +193,9 @@ def main():
             if val < 0 :
                 hx.reset()
                 hx.tare()
-            if (val - currentWeight >= 5): #something larger than 3 grams added
-                timeout = time.time() + 60 # 1 minute from now
-                print("New item detected, 1 minute for pictures")
+            if (val - currentWeight >= 3): #something larger than 3 grams added
+                timeout = time.time() + 30 # 1 minute from now
+                print("New item detected, 30 seconds for pictures")
                 while time.time() < timeout:
                     val = hx.get_weight(5)
                     if val - currentWeight < -3 or val <= 0 : #false positive
@@ -236,6 +236,7 @@ def main():
                 print("done sleeping")
             
             delete_old_folders()
+            
             if time.time() >= dayEndtime:
                 cachetime = False
                 pictureNum = 0 # reset picture number
@@ -251,8 +252,8 @@ def callGmailAPI(service, numpictures):
     results = service.users().labels().list(userId='me').execute()
     labels = results.get('labels', [])
     sender = "me"
-    to = "smartmailbox498@gmail.com, tis.william@gmail.com"
-    #to = "smartmailbox498@gmail.com, tis.william@gmail.com, atin.ganti@gmail.com"
+    #to = "smartmailbox498@gmail.com, tis.william@gmail.com"
+    to = "smartmailbox498@gmail.com, tis.william@gmail.com, atin.ganti@gmail.com"
     timestamp = localtime()
     
     subject = strftime("Mail Received on: %B %d %Y at %I:%M %p", timestamp)
